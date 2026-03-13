@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Memory Bank</title>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;500;700&family=Playfair+Display:ital@1&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #1a1410;
+    --surface: #211c17;
+    --header-h: 64px;
+    --colors: #f4a261, #e76f51, #a8c5a0, #84b5d4, #c9a0d4, #f1c27d, #80cbc4;
+  }
+
+  body {
+    font-family: 'Zen Maru Gothic', sans-serif;
+    background: var(--bg);
+    color: #f0ead6;
+    height: 100dvh;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* 背景テクスチャ */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(ellipse at 20% 80%, rgba(244,162,97,0.06) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 20%, rgba(132,181,212,0.05) 0%, transparent 50%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ヘッダー */
+  header {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: var(--header-h);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    z-index: 100;
+    background: linear-gradient(to bottom, rgba(26,20,16,0.98), rgba(26,20,16,0));
+  }
+
+  .title {
+    font-family: 'Playfair Display', serif;
+    font-style: italic;
+    font-size: 22px;
+    color: #f0ead6;
+    letter-spacing: 0.02em;
+    opacity: 0.9;
+  }
+
+  .title span {
+    font-family: 'Zen Maru Gothic', sans-serif;
+    font-style: normal;
+    font-size: 11px;
+    font-weight: 400;
+    opacity: 0.45;
+    display: block;
+    letter-spacing: 0.15em;
+    margin-top: -2px;
+  }
+
+  .add-btn {
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(240,234,214,0.25);
+    background: rgba(240,234,214,0.08);
+    color: #f0ead6;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.2s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .add-btn:active { transform: scale(0.92); background: rgba(240,234,214,0.15); }
+
+  /* スクロール可能エリア */
+  #scroll-area {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    z-index: 1;
+  }
+
+  /* カードを積むコンテナ */
+  #card-stage {
+    position: relative;
+    width: 100%;
+    min-height: 100dvh;
+  }
+
+  /* 底ライン（地面） */
+  .ground-line {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(to right, transparent, rgba(240,234,214,0.08), transparent);
+  }
+
+  /* カード */
+  .card {
+    position: absolute;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 12px;
+    cursor: pointer;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 0.15s ease;
+    word-break: break-all;
+    line-height: 1.4;
+    font-family: 'Zen Maru Gothic', sans-serif;
+    font-weight: 500;
+    --drop-dist: -120px;
+    opacity: 1;
+  }
+
+  .card.animate-drop {
+    animation: dropIn 1.1s cubic-bezier(0.22, 0, 0.4, 0) forwards;
+  }
+
+  @keyframes dropIn {
+    0%   { opacity: 0; transform: translateY(var(--drop-dist)) rotate(var(--tilt)) scale(0.82); }
+    30%  { opacity: 1; }
+    68%  { transform: translateY(0) rotate(var(--tilt)) scale(1); animation-timing-function: ease-out; }
+    78%  { transform: translateY(-16px) rotate(var(--tilt)) scale(1.05); animation-timing-function: ease-in; }
+    87%  { transform: translateY(0) rotate(var(--tilt)) scale(0.97); animation-timing-function: ease-out; }
+    93%  { transform: translateY(-6px) rotate(var(--tilt)) scale(1.01); animation-timing-function: ease-in; }
+    97%  { transform: translateY(0) rotate(var(--tilt)) scale(0.998); }
+    100% { opacity: 1; transform: translateY(0) rotate(var(--tilt)) scale(1); }
+  }
+
+  .card:active:not(.animate-drop) {
+    animation: wobble 0.4s ease !important;
+    animation-fill-mode: forwards !important;
+  }
+  @keyframes wobble {
+    0%   { transform: rotate(var(--tilt)) scale(1); }
+    25%  { transform: rotate(calc(var(--tilt) + 4deg)) scale(1.04); }
+    50%  { transform: rotate(calc(var(--tilt) - 3deg)) scale(1.02); }
+    75%  { transform: rotate(calc(var(--tilt) + 2deg)) scale(1.01); }
+    100% { transform: rotate(var(--tilt)) scale(1); }
+  }
+
+  /* 削除アニメ */
+  .card.animate-shrink {
+    animation: shrinkOut 0.65s cubic-bezier(0.34, 1.2, 0.64, 1) forwards !important;
+    pointer-events: none;
+    z-index: 50;
+  }
+  @keyframes shrinkOut {
+    0%   { opacity: 1; transform: rotate(var(--tilt)) scale(1); }
+    20%  { transform: rotate(var(--tilt)) scale(1.12); }
+    100% { opacity: 0; transform: rotate(var(--tilt)) scale(0); }
+  }
+
+  /* サイズ別 */
+  .card.sm { width: 88px;  height: 88px;  font-size: 10px; }
+  .card.md { width: 120px; height: 120px; font-size: 12px; }
+  .card.lg { width: 155px; height: 155px; font-size: 14px; }
+
+  /* モーダルオーバーレイ */
+  .overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(10,8,6,0.75);
+    backdrop-filter: blur(4px);
+    z-index: 200;
+    align-items: flex-end;
+    justify-content: center;
+  }
+  .overlay.open { display: flex; }
+
+  .modal {
+    background: #2a2318;
+    border-radius: 24px 24px 0 0;
+    padding: 28px 24px 40px;
+    width: 100%;
+    max-width: 480px;
+    animation: slideUp 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+    border-top: 1px solid rgba(240,234,214,0.1);
+  }
+  @keyframes slideUp {
+    from { transform: translateY(100%); }
+    to   { transform: translateY(0); }
+  }
+
+  .modal-handle {
+    width: 36px; height: 4px;
+    border-radius: 2px;
+    background: rgba(240,234,214,0.2);
+    margin: 0 auto 20px;
+  }
+
+  .modal-title {
+    font-size: 13px;
+    letter-spacing: 0.12em;
+    opacity: 0.45;
+    margin-bottom: 16px;
+    text-transform: uppercase;
+  }
+
+  .modal-date {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    opacity: 0.35;
+    text-align: center;
+    margin-top: -16px;
+    margin-bottom: 16px;
+  }
+
+  textarea {
+    width: 100%;
+    min-height: 90px;
+    background: rgba(240,234,214,0.05);
+    border: 1px solid rgba(240,234,214,0.12);
+    border-radius: 14px;
+    padding: 14px;
+    color: #f0ead6;
+    font-family: 'Zen Maru Gothic', sans-serif;
+    font-size: 15px;
+    resize: none;
+    outline: none;
+    line-height: 1.6;
+    transition: border-color 0.2s;
+  }
+  textarea:focus { border-color: rgba(240,234,214,0.3); }
+
+  .section-label {
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    opacity: 0.4;
+    margin: 16px 0 8px;
+    text-transform: uppercase;
+  }
+
+  /* カラー選択 */
+  .color-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .color-dot {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    cursor: pointer;
+    position: relative;
+    transition: transform 0.15s;
+    border: 2px solid transparent;
+  }
+  .color-dot.selected {
+    border-color: rgba(240,234,214,0.7);
+    transform: scale(1.15);
+  }
+  .color-dot:active { transform: scale(0.92); }
+
+  /* サイズ選択 */
+  .size-row {
+    display: flex;
+    gap: 10px;
+  }
+  .size-btn {
+    flex: 1;
+    padding: 10px 0;
+    border-radius: 12px;
+    border: 1px solid rgba(240,234,214,0.15);
+    background: transparent;
+    color: #f0ead6;
+    font-family: 'Zen Maru Gothic', sans-serif;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .size-btn.selected {
+    background: rgba(240,234,214,0.12);
+    border-color: rgba(240,234,214,0.35);
+  }
+
+  /* アクションボタン */
+  .modal-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 22px;
+  }
+  .btn-save {
+    flex: 1;
+    padding: 14px;
+    border-radius: 14px;
+    border: none;
+    background: rgba(240,234,214,0.9);
+    color: #1a1410;
+    font-family: 'Zen Maru Gothic', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .btn-save:active { transform: scale(0.97); }
+
+  .btn-cancel {
+    padding: 14px 18px;
+    border-radius: 14px;
+    border: 1px solid rgba(240,234,214,0.15);
+    background: transparent;
+    color: rgba(240,234,214,0.5);
+    font-family: 'Zen Maru Gothic', sans-serif;
+    font-size: 15px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .btn-delete {
+    padding: 14px 18px;
+    border-radius: 14px;
+    border: 1px solid rgba(231,111,81,0.35);
+    background: transparent;
+    color: rgba(231,111,81,0.7);
+    font-family: 'Zen Maru Gothic', sans-serif;
+    font-size: 14px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: all 0.15s;
+  }
+  .btn-delete:active { background: rgba(231,111,81,0.1); }
+
+  /* 空の状態 */
+  .empty-hint {
+    position: fixed;
+    bottom: 30%;
+    left: 50%;
+    transform: translateX(-50%);
+    text-align: center;
+    opacity: 0.2;
+    pointer-events: none;
+    transition: opacity 0.5s;
+  }
+  .empty-hint .icon { font-size: 32px; margin-bottom: 8px; }
+  .empty-hint p { font-size: 13px; line-height: 1.8; letter-spacing: 0.05em; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="title">
+    Memory Bank
+    <span>思想の地層</span>
+  </div>
+  <button class="add-btn" id="openAdd" aria-label="追加">＋</button>
+</header>
+
+<div id="scroll-area">
+  <div id="card-stage">
+    <div class="ground-line"></div>
+  </div>
+</div>
+
+<div class="empty-hint" id="emptyHint">
+  <div class="icon">○</div>
+  <p>＋ボタンで<br>思考を追加</p>
+</div>
+
+<!-- 追加/編集モーダル -->
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-date" id="modalDate"></div>
+    <div class="modal-title" id="modalTitle">新しい思考</div>
+
+    <textarea id="cardText" placeholder="いまの思い、アイデア、気づき…" maxlength="80"></textarea>
+
+    <div class="section-label">色</div>
+    <div class="color-row" id="colorRow"></div>
+
+    <div class="section-label">大きさ</div>
+    <div class="size-row" id="sizeRow">
+      <button class="size-btn" data-size="sm">小</button>
+      <button class="size-btn selected" data-size="md">中</button>
+      <button class="size-btn" data-size="lg">大</button>
+    </div>
+
+    <div class="modal-actions" id="modalActions">
+      <button class="btn-cancel" id="btnCancel">キャンセル</button>
+      <button class="btn-save" id="btnSave">おく</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const COLORS = [
+  { hex: '#f4a261', bg: 'rgba(244,162,97,0.28)',  border: 'rgba(244,162,97,0.5)'  },
+  { hex: '#e76f51', bg: 'rgba(231,111,81,0.25)',  border: 'rgba(231,111,81,0.5)'  },
+  { hex: '#a8c5a0', bg: 'rgba(168,197,160,0.25)', border: 'rgba(168,197,160,0.5)' },
+  { hex: '#84b5d4', bg: 'rgba(132,181,212,0.25)', border: 'rgba(132,181,212,0.5)' },
+  { hex: '#c9a0d4', bg: 'rgba(201,160,212,0.25)', border: 'rgba(201,160,212,0.5)' },
+  { hex: '#f1c27d', bg: 'rgba(241,194,125,0.25)', border: 'rgba(241,194,125,0.5)' },
+  { hex: '#80cbc4', bg: 'rgba(128,203,196,0.25)', border: 'rgba(128,203,196,0.5)' },
+];
+const SIZES = { sm: 88, md: 120, lg: 155 };
+const GAP = 3;
+const X_STEPS = 60;
+
+// ============================================================
+// 設計: 「地面」を画面下端に完全固定する
+//
+// scroll-area は overflow-y:auto の固定要素
+// card-stage の高さ = STAGE_H (大きめ固定値)
+// 地面Y = STAGE_H - BOTTOM_PAD  ← 常に不変
+// カードの top 値 = 地面Y + 仮想Y (仮想Yは地面=0、上が負)
+//
+// スクロール位置だけを動かして「見えるウィンドウ」を制御する
+// 満杯ライン: 山頂が画面上から25%(= 下から75%)に来る位置でクランプ
+// ============================================================
+
+const STAGE_H    = 8000;  // 固定の大きな高さ（過去カード用余白）
+const BOTTOM_PAD = 20;
+const GROUND_Y   = STAGE_H - BOTTOM_PAD;  // 不変の地面
+
+let cards = JSON.parse(localStorage.getItem('membank') || '[]').map(({ _new, ...rest }) => rest);
+let editingId = null;
+let selColor = 0;
+let selSize = 'md';
+
+const stage      = document.getElementById('card-stage');
+const overlay    = document.getElementById('overlay');
+const modalTitle = document.getElementById('modalTitle');
+const cardText   = document.getElementById('cardText');
+const colorRow   = document.getElementById('colorRow');
+const btnSave    = document.getElementById('btnSave');
+const btnCancel  = document.getElementById('btnCancel');
+const emptyHint  = document.getElementById('emptyHint');
+const scrollArea = document.getElementById('scroll-area');
+
+stage.style.height = STAGE_H + 'px';
+
+// カラーパレット生成
+COLORS.forEach((c, i) => {
+  const d = document.createElement('div');
+  d.className = 'color-dot' + (i === 0 ? ' selected' : '');
+  d.style.background = c.hex;
+  d.addEventListener('click', () => {
+    document.querySelectorAll('.color-dot').forEach(x => x.classList.remove('selected'));
+    d.classList.add('selected');
+    selColor = i;
+  });
+  colorRow.appendChild(d);
+});
+
+document.querySelectorAll('.size-btn').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.size-btn').forEach(x => x.classList.remove('selected'));
+    b.classList.add('selected');
+    selSize = b.dataset.size;
+  });
+});
+
+function save() { localStorage.setItem('membank', JSON.stringify(cards)); }
+
+// --- 物理配置エンジン ---
+function placeCard(r, placed, vw) {
+  const xMin = r + GAP, xMax = vw - r - GAP;
+  if (xMin > xMax) return { x: vw / 2, y: -r };
+  let bestX = vw / 2, bestY = -Infinity;
+  for (let s = 0; s <= X_STEPS; s++) {
+    const x = xMin + (xMax - xMin) * (s / X_STEPS);
+    const y = dropY(x, r, placed);
+    if (y > bestY) { bestY = y; bestX = x; }
+  }
+  return { x: bestX, y: bestY };
+}
+
+function dropY(x, r, placed) {
+  let y = -r; // 地面(Y=0)に接する中心Y
+  for (const p of placed) {
+    const minDist = r + p.r + GAP;
+    const dx = Math.abs(x - p.x);
+    if (dx >= minDist) continue;
+    const dy = Math.sqrt(minDist * minDist - dx * dx);
+    const landY = p.y - dy;
+    if (landY < y) y = landY;
+  }
+  return y;
+}
+
+// 確定した座標マップ: id → {x, y, r}（renderAllで確定・更新）
+let fixedCoords = {};
+
+// 全カードの仮想座標を計算（地面=0、上が負）
+// ghostSlots: 削除済みカードの座標をそのまま障害物として残すリスト [{x,y,r}]
+function calcLayout(ghostSlots = []) {
+  const vw = window.innerWidth;
+  const placed = [...ghostSlots]; // 幽霊を先に障害物として置く
+  const result = [];
+  for (const c of cards) {
+    const r = SIZES[c.size] / 2;
+    const pos = placeCard(r, placed, vw);
+    placed.push({ ...pos, r, id: c.id });
+    result.push({ ...pos, r, id: c.id });
+  }
+  return result;
+}
+
+// 仮想Y → stage上の絶対Y（top値の基点）
+function toStageY(virtualY) {
+  return GROUND_Y + virtualY;
+}
+
+// 山頂から適切なscrollTopを求める（満杯ライン: 山頂が画面上25%）
+function calcScrollTop(placed) {
+  if (!placed.length) return GROUND_Y - window.innerHeight + BOTTOM_PAD;
+  const topmostVY = Math.min(...placed.map(p => p.y - p.r));
+  const mountainTop = toStageY(topmostVY);
+  const FILL_TOP = window.innerHeight * 0.25;
+  return Math.max(0, mountainTop - FILL_TOP);
+}
+
+// --- 全カード再描画 ---
+function renderAll() {
+  document.querySelectorAll('.card').forEach(el => el.remove());
+  emptyHint.style.opacity = cards.length === 0 ? '1' : '0';
+  if (cards.length === 0) {
+    scrollArea.scrollTop = GROUND_Y - window.innerHeight + BOTTOM_PAD + 40;
+    return;
+  }
+
+  const placed = calcLayout();
+  fixedCoords = {};
+  placed.forEach(p => { fixedCoords[p.id] = { x: p.x, y: p.y, r: p.r }; });
+
+  for (let i = 0; i < cards.length; i++) {
+    const c = cards[i];
+    const p = placed[i];
+    const r = p.r;
+    const col = COLORS[c.color];
+    const destTop  = toStageY(p.y) - r;
+    const destLeft = p.x - r;
+
+    const el = document.createElement('div');
+    el.className = `card ${c.size}`;
+    el.dataset.id = c.id;
+    el.style.cssText = `
+      left: ${destLeft}px;
+      top:  ${destTop}px;
+      background: ${col.bg};
+      border: 1.5px solid ${col.border};
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      box-shadow: 0 6px 24px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.08);
+      --tilt: ${c.tilt}deg;
+      transform: rotate(${c.tilt}deg);
+      color: ${col.hex};
+      opacity: 1;
+    `;
+    el.textContent = c.text;
+    el.addEventListener('click', () => openEdit(c.id));
+    stage.appendChild(el);
+
+    if (c._new) {
+      delete c._new;
+      // フラグをlocalStorageからも即座に除去
+      const toSave = cards.map(({ _new, ...rest }) => rest);
+      localStorage.setItem('membank', JSON.stringify(toSave));
+      const screenY = destTop - scrollArea.scrollTop;
+      const dropDist = -(screenY + r + 80);
+      el.style.setProperty('--drop-dist', dropDist + 'px');
+      el.style.opacity = '0';
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        el.style.opacity = '1';
+        el.classList.add('animate-drop');
+        setTimeout(() => el.classList.remove('animate-drop'), 1200);
+      }));
+    }
+  }
+
+  scrollArea.scrollTop = calcScrollTop(placed);
+}
+
+// --- 削除後の物理アニメーション ---
+function animateSettle(deletedId) {
+  emptyHint.style.opacity = cards.length === 0 ? '1' : '0';
+  if (cards.length === 0) return;
+
+  const ghost = fixedCoords[deletedId];
+  const ghostSlots = ghost ? [{ x: ghost.x, y: ghost.y, r: ghost.r * 0.1 }] : [];
+
+  const placedWithGhost = calcLayout(ghostSlots);
+  const coordsWithGhost = {};
+  placedWithGhost.forEach(p => { coordsWithGhost[p.id] = p; });
+
+  const placedFinal = calcLayout([]);
+  const coordsFinal = {};
+  placedFinal.forEach(p => { coordsFinal[p.id] = p; });
+
+  document.querySelectorAll('.card').forEach(el => {
+    const id = Number(el.dataset.id);
+    const cg = coordsWithGhost[id];
+    if (!cg) return;
+    el.style.transition = 'none';
+    el.style.top  = (toStageY(cg.y) - cg.r) + 'px';
+    el.style.left = (cg.x - cg.r) + 'px';
+  });
+
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    document.querySelectorAll('.card').forEach(el => {
+      const id = Number(el.dataset.id);
+      const cf = coordsFinal[id];
+      if (!cf) return;
+      const newTop  = toStageY(cf.y) - cf.r;
+      const newLeft = cf.x - cf.r;
+      const curTop  = parseFloat(el.style.top);
+      const curLeft = parseFloat(el.style.left);
+      if (Math.abs(curTop - newTop) < 1 && Math.abs(curLeft - newLeft) < 1) return;
+      el.style.transition = 'top 0.6s cubic-bezier(0.34, 1.4, 0.64, 1), left 0.45s cubic-bezier(0.22, 1, 0.36, 1)';
+      el.style.top  = newTop + 'px';
+      el.style.left = newLeft + 'px';
+      setTimeout(() => { el.style.transition = ''; }, 650);
+    });
+    setTimeout(() => {
+      scrollArea.scrollTop = calcScrollTop(placedFinal);
+    }, 100);
+  }));
+
+  fixedCoords = coordsFinal;
+}
+
+// --- 日付フォーマット ---
+function formatDate(id) {
+  const d = new Date(id);
+  return `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日 ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+
+// --- モーダル開く（追加） ---
+document.getElementById('openAdd').addEventListener('click', () => {
+  editingId = null;
+  modalTitle.textContent = '新しい思考';
+  document.getElementById('modalDate').textContent = '';
+  cardText.value = '';
+  selColor = 0;
+  selSize = 'md';
+  document.querySelectorAll('.color-dot').forEach((d,i) => d.classList.toggle('selected', i===0));
+  document.querySelectorAll('.size-btn').forEach(b => b.classList.toggle('selected', b.dataset.size==='md'));
+  document.getElementById('btnDelete')?.remove();
+  btnSave.textContent = 'おく';
+  overlay.classList.add('open');
+  setTimeout(() => cardText.focus(), 300);
+});
+
+// --- モーダル開く（編集） ---
+function openEdit(id) {
+  const c = cards.find(x => x.id === id);
+  if (!c) return;
+  editingId = id;
+  modalTitle.textContent = '思考を編集';
+  document.getElementById('modalDate').textContent = formatDate(c.id);
+  cardText.value = c.text;
+  selColor = c.color;
+  selSize = c.size;
+  document.querySelectorAll('.color-dot').forEach((d,i) => d.classList.toggle('selected', i===c.color));
+  document.querySelectorAll('.size-btn').forEach(b => b.classList.toggle('selected', b.dataset.size===c.size));
+  btnSave.textContent = '更新';
+  if (!document.getElementById('btnDelete')) {
+    const bd = document.createElement('button');
+    bd.id = 'btnDelete'; bd.className = 'btn-delete'; bd.textContent = '削除';
+    bd.addEventListener('click', () => deleteCard(id));
+    document.getElementById('modalActions').prepend(bd);
+  }
+  overlay.classList.add('open');
+}
+
+// --- 保存ボタン ---
+btnSave.addEventListener('click', () => {
+  const text = cardText.value.trim();
+  if (!text) return;
+  const tilt = (Math.random() - 0.5) * 14;
+  if (editingId) {
+    const c = cards.find(x => x.id === editingId);
+    if (c) { c.text = text; c.color = selColor; c.size = selSize; }
+  } else {
+    cards.push({ id: Date.now(), text, color: selColor, size: selSize, tilt, _new: true });
+  }
+  // _newフラグはlocalStorageに保存しない
+  const toSave = cards.map(({ _new, ...rest }) => rest);
+  localStorage.setItem('membank', JSON.stringify(toSave));
+  closeModal(); renderAll();
+});
+
+// --- 削除 ---
+function deleteCard(id) {
+  closeModal();
+  const el = document.querySelector(`.card[data-id="${id}"]`);
+  if (!el) { cards = cards.filter(x => x.id !== id); save(); renderAll(); return; }
+
+  setTimeout(() => {
+    el.classList.add('animate-shrink');
+    setTimeout(() => {
+      el.remove();
+      cards = cards.filter(x => x.id !== id);
+      save();
+      if (cards.length === 0) {
+        emptyHint.style.opacity = '1';
+        return;
+      }
+      animateSettle(id);
+    }, 720);
+  }, 260);
+}
+
+// --- モーダル閉じる ---
+function closeModal() {
+  overlay.classList.remove('open');
+  document.getElementById('btnDelete')?.remove();
+}
+btnCancel.addEventListener('click', closeModal);
+overlay.addEventListener('click', e => { if (e.target === overlay) closeModal(); });
+
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(renderAll, 200);
+});
+
+renderAll();
+</script>
+</body>
+</html>
